@@ -185,10 +185,8 @@ export type FmhySharedAdmissionStore = {
 };
 
 export class FmhySharedProtectionUnavailableError extends Error {
-  readonly retryAfterSeconds = 5;
-
   constructor() {
-    super("FMHYchat protection is temporarily unavailable. Please try again in 5 seconds.");
+    super("Shared protection state is unavailable.");
     this.name = "FmhySharedProtectionUnavailableError";
   }
 }

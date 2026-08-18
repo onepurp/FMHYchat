@@ -5,6 +5,7 @@ describe("retry countdown helpers", () => {
   it("extracts only bounded retry timing from a safe server message", () => {
     expect(retryAfterSecondsFromMessage("FMHYchat is busy. Please try again in 5 seconds.")).toBe(5);
     expect(retryAfterSecondsFromMessage("The FMHY database is temporarily unavailable.")).toBeNull();
+    expect(retryAfterSecondsFromMessage("Shared protection state is unavailable. Please try again in 5 seconds.")).toBeNull();
     expect(retryAfterSecondsFromMessage("Try again in 90 seconds.")).toBeNull();
   });
 

@@ -14,7 +14,16 @@ import {
 import { invokeLLM } from "./_core/llm";
 import { invokeGroqChat } from "./groq";
 
-const { invokeModel } = vi.hoisted(() => ({ invokeModel: vi.fn() }));
+const { invokeModel, sharedStateMock, sharedStateRequiredMock } = vi.hoisted(() => ({
+  invokeModel: vi.fn(),
+  sharedStateRequiredMock: vi.fn(() => false),
+  sharedStateMock: {
+    readFreshSourceCache: vi.fn(),
+    claimSourceRefresh: vi.fn(),
+    writeSourceCache: vi.fn(),
+    releaseSourceRefresh: vi.fn(),
+  },
+}));
 
 vi.mock("./_core/llm", () => ({
   invokeLLM: invokeModel,
@@ -22,6 +31,11 @@ vi.mock("./_core/llm", () => ({
 
 vi.mock("./groq", () => ({
   invokeGroqChat: invokeModel,
+}));
+
+vi.mock("./fmhySharedState", () => ({
+  fmhySharedState: sharedStateMock,
+  sharedFmhyStateRequired: sharedStateRequiredMock,
 }));
 
 const readingPage = {
@@ -34,7 +48,8 @@ describe("FMHY retrieval boundary", () => {
   afterEach(() => {
     clearFmhySourceCacheForTest();
     vi.unstubAllGlobals();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    sharedStateRequiredMock.mockReturnValue(false);
   });
 
   it("normalizes a valid query and rejects an empty or overlong request", () => {
@@ -276,6 +291,23 @@ describe("FMHY retrieval boundary", () => {
       status: "MATCHED",
       sources: [expect.objectContaining({ label: "Meal Planner", relevance: "Direct match" })],
     });
+  });
+
+  it("falls back to the local official-source cache when the production shared cache is unavailable", async () => {
+    const readingMarkup = `<h3>Food</h3><ul><li><a href="https://example.com/meal-planner">Meal Planner</a> - Plan meals and recipes for the week</li></ul>`;
+    sharedStateRequiredMock.mockReturnValue(true);
+    sharedStateMock.readFreshSourceCache.mockRejectedValue(new Error("database offline"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(readingMarkup, { status: 200 })));
+    vi.mocked(invokeLLM)
+      .mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify({ pages: ["Reading"] }) } }] } as never)
+      .mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify({ sections: ["Reading · Food"] }) } }] } as never)
+      .mockResolvedValueOnce({ choices: [{ message: { content: JSON.stringify({ answer: "Meal Planner helps with dinner planning." }) } }] } as never);
+
+    await expect(searchFmhy("I need help deciding what to prepare for dinner.")).resolves.toMatchObject({
+      status: "MATCHED",
+      sources: [expect.objectContaining({ label: "Meal Planner" })],
+    });
+    expect(fetch).toHaveBeenCalledWith("https://fmhy.net/reading", expect.any(Object));
   });
 
   it("selects an official FMHY heading before resolving a descriptive resource", async () => {

@@ -9,6 +9,8 @@ const { searchFmhyMock, sharedStateMock, sharedStateRequiredMock } = vi.hoisted(
     acquireSearchLease: vi.fn(),
     releaseSearchLease: vi.fn(),
     incrementMetric: vi.fn(),
+    readCircuit: vi.fn(),
+    reportRateLimit: vi.fn(),
   },
 }));
 
@@ -42,6 +44,8 @@ describe("FMHY public-search protection", () => {
     sharedStateMock.acquireSearchLease.mockReset();
     sharedStateMock.releaseSearchLease.mockReset();
     sharedStateMock.incrementMetric.mockReset();
+    sharedStateMock.readCircuit.mockReset();
+    sharedStateMock.reportRateLimit.mockReset();
     sharedStateRequiredMock.mockReset();
     sharedStateRequiredMock.mockReturnValue(false);
     vi.clearAllMocks();
@@ -166,7 +170,7 @@ describe("FMHY public-search protection", () => {
       });
   });
 
-  it("fails closed when the shared cross-instance admission store is unavailable", async () => {
+  it("labels unavailable shared admission without retry-countdown guidance", async () => {
     const createSharedAdmission = (protection as typeof protection & {
       createFmhySharedAdmission: (store: unknown) => { admit: (clientKey: string) => Promise<unknown> };
     }).createFmhySharedAdmission;
@@ -182,7 +186,7 @@ describe("FMHY public-search protection", () => {
 
     await expect(admission.admit("opaque-client-key")).rejects.toMatchObject({
       name: "FmhySharedProtectionUnavailableError",
-      retryAfterSeconds: 5,
+      message: "Shared protection state is unavailable.",
     });
   });
 
@@ -241,15 +245,24 @@ describe("FMHY public-search protection", () => {
     await expect(admission.admit("opaque-client-key")).resolves.toMatchObject({ leaseId: "shared-lease" });
   });
 
-  it("fails closed with retry guidance when shared admission is unavailable", async () => {
+  it("falls back to local protection when the shared circuit state is unavailable", async () => {
     sharedStateRequiredMock.mockReturnValue(true);
-    sharedStateMock.claimRateBucket.mockRejectedValue(new Error("database offline"));
+    sharedStateMock.readCircuit.mockRejectedValue(new Error("database offline"));
     searchFmhyMock.mockResolvedValue({ status: "NO_MATCH", answer: "No match", sources: [] });
 
     await expect(appRouter.createCaller(createContext("shared-store-user")).fmhy.search({ query: "music tools" }))
+      .resolves.toMatchObject({ status: "NO_MATCH", answer: "No match" });
+    expect(searchFmhyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the shared Groq circuit retry when capacity is genuinely limited", async () => {
+    sharedStateRequiredMock.mockReturnValue(true);
+    sharedStateMock.readCircuit.mockResolvedValue({ openUntil: new Date(Date.now() + 5_000) });
+
+    await expect(appRouter.createCaller(createContext("shared-circuit-user")).fmhy.search({ query: "music tools" }))
       .rejects.toMatchObject({
         code: "TOO_MANY_REQUESTS",
-        message: expect.stringMatching(/protection is temporarily unavailable.*try again in 5 seconds/i),
+        message: expect.stringMatching(/Groq capacity.*try again in/i),
       });
     expect(searchFmhyMock).not.toHaveBeenCalled();
   });

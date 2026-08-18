@@ -75,66 +75,72 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const clientKey = fmhySearchClientKey(ctx);
+        const runWithLocalProtection = async () => {
+          const limit = fmhySearchRateLimiter.check(clientKey);
+          if (!limit.allowed) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: `FMHYchat is receiving too many requests from this client. Please try again in ${limit.retryAfterSeconds} seconds.`,
+            });
+          }
+          const globalLimit = fmhyGlobalSearchRateLimiter.check("global");
+          if (!globalLimit.allowed) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: `FMHYchat is busy. Please try again in ${globalLimit.retryAfterSeconds} seconds.`,
+            });
+          }
+          try {
+            return await fmhySearchQueue.run(() => searchFmhy(input.query, input.context));
+          } catch (error) {
+            if (error instanceof FmhySearchQueueFullError || error instanceof FmhySearchQueueWaitExpiredError) {
+              throw new TRPCError({
+                code: "TOO_MANY_REQUESTS",
+                message: error.message,
+              });
+            }
+            console.error("[FMHY] Search failed", error);
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "The FMHY database is temporarily unavailable. Please try again shortly.",
+            });
+          }
+        };
+
         if (sharedFmhyStateRequired()) {
+          let admission: Awaited<ReturnType<typeof fmhySharedAdmission.admit>>;
           try {
             await fmhyGroqCircuitBreaker.check();
-            const admission = await fmhySharedAdmission.admit(clientKey);
-            try {
-              const response = await searchFmhy(input.query, input.context);
-              const retryMatch = response.status === "UNAVAILABLE"
-                ? response.answer.match(/temporarily rate limited\. Please try again in (\d+) seconds/i)
-                : null;
-              if (retryMatch?.[1]) await fmhyGroqCircuitBreaker.reportRateLimit(Number(retryMatch[1]));
-              return response;
-            } finally {
-              await admission.release().catch(() => undefined);
-            }
+            admission = await fmhySharedAdmission.admit(clientKey);
           } catch (error) {
             if (
               error instanceof FmhySearchQueueFullError
               || error instanceof FmhySharedRateLimitError
-              || error instanceof FmhySharedProtectionUnavailableError
               || error instanceof FmhyGroqCircuitOpenError
             ) {
               throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: error.message });
             }
-            console.error("[FMHY] Shared protection failed", error);
-            throw new TRPCError({
-              code: "TOO_MANY_REQUESTS",
-              message: "FMHYchat protection is temporarily unavailable. Please try again in 5 seconds.",
-            });
+            // Shared coordination is optional: keep this instance's bounded safeguards active during DB outages.
+            console.warn("[FMHY] Shared protection unavailable; using local safeguards", error);
+            return runWithLocalProtection();
+          }
+          try {
+            const response = await searchFmhy(input.query, input.context);
+            const retryMatch = response.status === "UNAVAILABLE"
+              ? response.answer.match(/temporarily rate limited\. Please try again in (\d+) seconds/i)
+              : null;
+            if (retryMatch?.[1]) {
+              await fmhyGroqCircuitBreaker.reportRateLimit(Number(retryMatch[1])).catch((error) => {
+                console.warn("[FMHY] Shared circuit update unavailable", error);
+              });
+            }
+            return response;
+          } finally {
+            await admission.release().catch(() => undefined);
           }
         }
 
-        const limit = fmhySearchRateLimiter.check(clientKey);
-        if (!limit.allowed) {
-          throw new TRPCError({
-            code: "TOO_MANY_REQUESTS",
-            message: `FMHYchat is receiving too many requests from this client. Please try again in ${limit.retryAfterSeconds} seconds.`,
-          });
-        }
-        const globalLimit = fmhyGlobalSearchRateLimiter.check("global");
-        if (!globalLimit.allowed) {
-          throw new TRPCError({
-            code: "TOO_MANY_REQUESTS",
-            message: `FMHYchat is busy. Please try again in ${globalLimit.retryAfterSeconds} seconds.`,
-          });
-        }
-        try {
-          return await fmhySearchQueue.run(() => searchFmhy(input.query, input.context));
-        } catch (error) {
-          if (error instanceof FmhySearchQueueFullError || error instanceof FmhySearchQueueWaitExpiredError) {
-            throw new TRPCError({
-              code: "TOO_MANY_REQUESTS",
-              message: error.message,
-            });
-          }
-          console.error("[FMHY] Search failed", error);
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "The FMHY database is temporarily unavailable. Please try again shortly.",
-          });
-        }
+        return runWithLocalProtection();
       }),
   }),
 

@@ -9,7 +9,7 @@ describe("BrandMark", () => {
   it("uses the supplied play mark as the accessible FMHYchat logo", () => {
     const html = renderToStaticMarkup(<BrandMark />);
 
-    expect(html).toContain('src="/manus-storage/fmhychat-play-mark_99e21d37.png"');
+    expect(html).toContain('src="/fmhychat-play-mark.png"');
     expect(html).toContain('alt="FMHYchat"');
     expect(html).not.toContain("<svg");
   });

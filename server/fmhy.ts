@@ -673,6 +673,11 @@ async function fetchPageResourcesFromSharedCache(page: FmhyPage) {
   throw new Error("FMHY source refresh is already in progress. Please try again shortly.");
 }
 
+async function fetchPageResourcesLocally(page: FmhyPage, now = Date.now()) {
+  const resources = await fetchAndParseFmhyPage(page);
+  return cacheFmhySourcePage(page, resources, now);
+}
+
 async function fetchPageResources(page: FmhyPage) {
   const now = Date.now();
   const cached = fmhySourceCache.get(page.url);
@@ -683,12 +688,15 @@ async function fetchPageResources(page: FmhyPage) {
   if (inFlight) return inFlight;
 
   const request = sharedFmhyStateRequired()
-    ? fetchPageResourcesFromSharedCache(page)
-    : fetchAndParseFmhyPage(page).then(resources => cacheFmhySourcePage(page, resources, now));
+    ? fetchPageResourcesFromSharedCache(page).catch(async (error) => {
+      // Shared cache coordination is an optimization; always retain the in-process official FMHY cache as a safe fallback.
+      console.warn("[FMHY] Shared source cache unavailable; using local cache", error);
+      return fetchPageResourcesLocally(page, now);
+    })
+    : fetchPageResourcesLocally(page, now);
   fmhySourceFetches.set(page.url, request);
   try {
-    const resources = await request;
-    return sharedFmhyStateRequired() ? resources : cacheFmhySourcePage(page, resources, now);
+    return await request;
   } finally {
     if (fmhySourceFetches.get(page.url) === request) fmhySourceFetches.delete(page.url);
   }

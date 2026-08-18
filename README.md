@@ -9,7 +9,7 @@ FMHYchat is a responsive, FMHY-only discovery interface. Every search result is 
 Public search has no account requirement. The `/operations` route is intentionally separate from the workspace and uses a dedicated administrator-password session. It has no signup flow and does not rely on Manus OAuth or user roles.
 
 | Surface | Access model | Purpose |
-| --- | --- | --- |
+|---|---|---|
 | `/` | Anonymous | FMHY-only search, categories, citations, local sessions, retry states |
 | `/operations` | Administrator password | Aggregate protection metrics and FMHY search policy controls |
 | `/healthz` | Anonymous | Lightweight deployment health response: `{ "status": "ok" }` |
@@ -19,7 +19,7 @@ Public search has no account requirement. The `/operations` route is intentional
 Install dependencies with `pnpm install`, then run `pnpm dev`. The application automatically selects an available port beginning at `3000`. Use `pnpm test` for the regression suite, `pnpm run check` for TypeScript verification, and `pnpm run build` to create the production bundle. Production startup uses `pnpm start`.
 
 | Command | Purpose |
-| --- | --- |
+|---|---|
 | `pnpm dev` | Start the development server with Vite integration |
 | `pnpm test` | Run all unit and component regressions |
 | `pnpm run check` | Type-check without emitting files |
@@ -32,8 +32,9 @@ Install dependencies with `pnpm install`, then run `pnpm dev`. The application a
 Set production secrets through the hosting environment; do not commit `.env` files. The existing `.gitignore` excludes local environment files. The required active values are listed below.
 
 | Variable | Required | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | Yes | MySQL/TiDB connection used for distributed FMHY protection state and Operations metrics |
+|---|---|---|
+| `DATABASE_URL` | Recommended | MySQL/TiDB connection used for distributed FMHY protection state and Operations metrics; public search falls back safely when unavailable |
+| `FMHY_DATABASE_CA_CERT` | Required with Aiven | Full Aiven project CA certificate PEM used to verify the MySQL TLS server certificate |
 | `GROQ_API_KEY` | Yes | Grounded semantic selection for official FMHY content |
 | `FMHY_ADMIN_PASSWORD` | Yes | Administrator password accepted only by `/operations` |
 | `FMHY_ADMIN_SESSION_SECRET` | Yes | Separate secret used to sign short-lived administrator sessions |
@@ -41,6 +42,25 @@ Set production secrets through the hosting environment; do not commit `.env` fil
 | `NODE_ENV` | Yes in production | Set to `production` so built static assets are served |
 
 Use a long, unique administrator password and a distinct high-entropy session secret. Rotate both values whenever administrator access may have been exposed. The application uses a secure, `httpOnly`, host-scoped administrator cookie and rate-limits failed password attempts using a privacy-safe client key.
+
+### Aiven MySQL on Render
+
+FMHYchat stores **operational coordination only** in MySQL: rate-limit buckets, queue leases, source-cache metadata, aggregate metrics, a protection policy, and a Groq circuit record. It does not copy the FMHY catalog into the database.
+
+Set `DATABASE_URL` in the Render Web Service to Aiven's MySQL URI, retaining its `ssl-mode=REQUIRED` parameter. Set `FMHY_DATABASE_CA_CERT` to the complete Aiven CA certificate PEM, including its BEGIN and END markers. The runtime converts Aiven's URI hint into strict Node TLS verification and uses this CA rather than accepting an unverified certificate. See [Aiven's TLS guidance](https://aiven.io/docs/platform/concepts/tls-ssl-certificates) for the certificate download location.
+
+The schema must be migrated once before deployment. Use the repository's CA-verified migration runner from a trusted environment with `FMHY_MIGRATION_DATABASE_URL` and `FMHY_DATABASE_CA_CERT` set:
+
+```bash
+pnpm tsx scripts/migrate-aiven.mjs
+```
+
+Do not put that migration command in Render's Start Command. After migration, retain the normal commands:
+
+```text
+Build Command: pnpm install --frozen-lockfile && pnpm run build
+Start Command: pnpm start
+```
 
 ## Release Checklist
 

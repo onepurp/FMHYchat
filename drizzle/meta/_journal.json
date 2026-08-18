@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1786900568428,
+      "tag": "0000_slim_whistler",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1786983525479,
+      "tag": "0001_living_lily_hollister",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786984065576,
+      "tag": "0002_smooth_nomad",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1786985204133,
+      "tag": "0003_chunky_the_hood",
+      "breakpoints": true
+    }
+  ]
+}

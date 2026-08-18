@@ -9,7 +9,7 @@ FMHYchat is a responsive, FMHY-only discovery interface. Every search result is 
 Public search has no account requirement. The `/operations` route is intentionally separate from the workspace and uses a dedicated administrator-password session. It has no signup flow and does not rely on Manus OAuth or user roles.
 
 | Surface | Access model | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `/` | Anonymous | FMHY-only search, categories, citations, local sessions, retry states |
 | `/operations` | Administrator password | Aggregate protection metrics and FMHY search policy controls |
 | `/healthz` | Anonymous | Lightweight deployment health response: `{ "status": "ok" }` |
@@ -19,7 +19,7 @@ Public search has no account requirement. The `/operations` route is intentional
 Install dependencies with `pnpm install`, then run `pnpm dev`. The application automatically selects an available port beginning at `3000`. Use `pnpm test` for the regression suite, `pnpm run check` for TypeScript verification, and `pnpm run build` to create the production bundle. Production startup uses `pnpm start`.
 
 | Command | Purpose |
-|---|---|
+| --- | --- |
 | `pnpm dev` | Start the development server with Vite integration |
 | `pnpm test` | Run all unit and component regressions |
 | `pnpm run check` | Type-check without emitting files |
@@ -32,12 +32,12 @@ Install dependencies with `pnpm install`, then run `pnpm dev`. The application a
 Set production secrets through the hosting environment; do not commit `.env` files. The existing `.gitignore` excludes local environment files. The required active values are listed below.
 
 | Variable | Required | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `DATABASE_URL` | Yes | MySQL/TiDB connection used for distributed FMHY protection state and Operations metrics |
 | `GROQ_API_KEY` | Yes | Grounded semantic selection for official FMHY content |
 | `FMHY_ADMIN_PASSWORD` | Yes | Administrator password accepted only by `/operations` |
 | `FMHY_ADMIN_SESSION_SECRET` | Yes | Separate secret used to sign short-lived administrator sessions |
-| `PORT` | No | Preferred HTTP port; the server selects the next available port if needed |
+| `PORT` | No | HTTP port assigned by the host; in production the server binds to this exact port on `0.0.0.0` (default: `3000`) |
 | `NODE_ENV` | Yes in production | Set to `production` so built static assets are served |
 
 Use a long, unique administrator password and a distinct high-entropy session secret. Rotate both values whenever administrator access may have been exposed. The application uses a secure, `httpOnly`, host-scoped administrator cookie and rate-limits failed password attempts using a privacy-safe client key.
